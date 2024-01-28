@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: 2010-09-09
+#####################################################
+# 20240128
+# URL : MySQL用CF : https://qiita.com/kanamekun/items/53da2f73bcc2e5d68dc2
+# URL : PostgreSQL用CF : https://dev.classmethod.jp/articles/cloudformation-aurora-postgresql/
+# URL : PostgreSQL用Lambda
+# Lambdaのデータ投入をしない状態で成功。データ投入までできるようにしたい。
+# また、S3のロール割当とパラメータグループのMySQL部分もコメントアウトしている
+#
+#これ良さそう：https://github.com/aws-samples/aws-aurora-cloudformation-samples/blob/master/cftemplates/Aurora-Postgres-DB-Cluster.yml
+#
+# Parameters
+#####################################################
+Parameters:
+  DBMasterUserName:
+    Description: Please enter the name of the master user on an RDS.
+    Type: String
+    Default: master
+
+  DBMasterUserPassword:
+    Description: Please enter the password of the master user on an RDS. That should be greater or equal to 8 characters.
+    Type: String
+    Default: testdbpass
+    NoEcho: true
+
+  TestDataS3BucketArn:
+    Description: Please enter the ARN of the S3 bucket where the files to be imported into the Aurora database are stored.
+    Type: String
+    Default: arn:aws:s3:::bucket-name
+
+  S3BucketName:
+    Description: Please enter the S3 bucket name.
+    Type: String
+
+  VpcSubnet:
+    Description: AP VPC subnet
+    Type: String
+    Default: 10.0.0.0/16
+
+#####################################################
+# Mappings
+#####################################################
+Mappings:
+  Constant:
+    RDS:
+      ClusterName: test-aurora-cluster
+      DatabaseName: auroradb
+      InstanceName: test-aurora-instance1
+      InstanceType: db.t4g.large
+
+#####################################################
+# Resource
+#####################################################
+
+#####################################################
+#  VPC section
+#####################################################
+
+Description: Create VPC
+Resources:
+  TestVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcSubnet
+      Tags:
+        - Key: Name
+          Value: TestVPC
+
+#####################################################
+#  Subnet section
+#####################################################
+
+  TestPrivateSub1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [0, !Cidr [!GetAtt TestVPC.CidrBlock, 2, 8]] #10.0.0.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref TestVPC
+      AvailabilityZone: ap-northeast-1a
+      Tags:
+        - Key: Name
+          Value: TestPrivateSub1a
+
+  TestPrivateSub1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [1, !Cidr [!GetAtt TestVPC.CidrBlock, 2, 8]] #10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref TestVPC
+      AvailabilityZone: ap-northeast-1c
+      Tags:
+        - Key: Name
+          Value: TestPrivateSub1c
+
+#####################################################
+#  SecurityGroup section
+#####################################################
+
+  TestSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref "TestVPC"
+      GroupDescription: Allow RDS Connection From TCP 5432 Port
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !GetAtt "TestVPC.CidrBlock"
+      Tags:
+        - Key: Name
+          Value: TestSecurityGroup
+
+#  TestSecurityGroupForLambda:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref "TestVPC"
+      GroupDescription: Allow PostgreSQL (TCP5432)
+      Tags:
+        - Key: Name
+          Value: TestSecurityGroupForLambda
+
+#####################################################
+#   DBSubnetGroup section
+#####################################################
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS subnet group.
+      SubnetIds:
+        - !Ref "TestPrivateSub1a"
+        - !Ref "TestPrivateSub1c"
+
+#####################################################
+# Aurora section
+#####################################################
+# S3にアクセスするロールをつけようとするとエラー発生。
+# Resource handler returned message: "Invalid / Unmodifiable / Unsupported DB Parameter: time_zone" (RequestToken: be3ab7ab-641b-c803-8b82-16804d72b341, HandlerErrorCode: InvalidRequest)
+#
+  #AuroraがS3にアクセスするために必要なIAMロールの設定
+#  RDSS3AccessRole:
+#    Type: AWS::IAM::Role
+#    Properties:
+#      AssumeRolePolicyDocument:
+#        Version: 2012-10-17
+#        Statement:
+#          - Effect: Allow
+#            Principal:
+#              Service: rds.amazonaws.com
+#            Action: sts:AssumeRole
+#      Policies:
+#        - PolicyName: AllowS3Access
+#          PolicyDocument:
+#            Version: 2012-10-17
+#            Statement:
+#              - Effect: Allow
+#                Action:
+#                  - s3:GetObject
+#                  - s3:GetObjectVersion
+#                Resource:
+#                  - !Sub '${TestDataS3BucketArn}'
+#                  - !Sub '${TestDataS3BucketArn}/*'
+#
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-rds-dbparametergroup.html
+  DBParameterGroup:
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: "RDS DB parameter group the Aurora Cluster's instance(s)."
+      Family: "aurora-postgresql15"
+      Parameters:
+        shared_preload_libraries: auto_explain,pg_stat_statements,pg_hint_plan,pgaudit
+#        max_connections: "10" # 多分これがだめ。どうすればいいかわかんね。
+      Tags: 
+        - Key: Name
+          Value: TestClusterParamaterGroup
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbclusterparametergroup.html
+  DBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Properties:
+      Description: "RDS DB cluster parameter group for Hub-Amber"
+      Family: "aurora-postgresql15"
+      Parameters:
+        timezone: "Asia/Tokyo"
+#以下はMySQLようなので削除
+#        time_zone: 'Asia/Tokyo'
+#        aws_default_s3_role: !GetAtt RDSS3AccessRole.Arn #LOAD DATA FROM S3コマンドを実行し、S3のファイルを読み込むためのIAM role。超重要。
+#        character_set_client: "utf8mb4"
+#        character_set_connection: "utf8mb4"
+#        character_set_database: "utf8mb4"
+#        character_set_filesystem: "utf8mb4"
+#        character_set_results: "utf8mb4"
+#        character_set_server: "utf8mb4"
+#        collation_connection: "utf8mb4_bin"
+#        collation_server: "utf8mb4_bin"
+#        time_zone: "Asia/Tokyo"
+      Tags: 
+        - Key: Name
+          Value: TestClusterParamaterGroup
+
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+#      AssociatedRoles:
+#        - RoleArn: !GetAtt RDSS3AccessRole.Arn  #LOAD DATA FROM S3コマンドを実行し、S3のファイルを読み込むためのIAM role。超重要。
+      Engine: aurora-postgresql
+      EngineVersion: 15.4
+      DatabaseName: !FindInMap [Constant, RDS, DatabaseName]
+      DBClusterIdentifier: !FindInMap [Constant, RDS, ClusterName]
+      MasterUsername: !Ref "DBMasterUserName"
+      MasterUserPassword: !Ref "DBMasterUserPassword"
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      DBClusterParameterGroupName: !Ref "DBClusterParameterGroup"
+      VpcSecurityGroupIds:
+        - !Ref "TestSecurityGroup"
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: 15.4
+      DBInstanceClass: !FindInMap [Constant, RDS, InstanceType]
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      DBParameterGroupName: !Ref "DBParameterGroup"
+      DBClusterIdentifier: !Ref "DBCluster"
+      AvailabilityZone: ap-northeast-1a
+
+
+#####################################################
+# Lambda section (データ投入用Lambda)
+#####################################################
+#  #Lambda実行権限とAuroraの操作権限を付与したIAMロールの設定
+#  IAMRoleForLambdaFunction:
+#    Type: AWS::IAM::Role
+#    Properties:
+#      AssumeRolePolicyDocument:
+#        Version: "2012-10-17"
+#        Statement:
+#          -
+#            Effect: "Allow"
+#            Principal:
+#              Service:
+#                - "lambda.amazonaws.com"
+#            Action:
+#              - "sts:AssumeRole"
+#      ManagedPolicyArns:
+#        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+#        - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+#      MaxSessionDuration: 3600
+#      Path: "/"
+#      RoleName: "RDSFullAccessLambdaExecRole"
+
+
+#  LambdaFunction:
+#    Type: AWS::Lambda::Function
+#    Properties:
+#      Environment:
+#        Variables:
+#          DB_PORT: '5432'
+#          DB_NAME: !FindInMap [Constant, RDS, DatabaseName]
+#          DB_PASSWORD: !Ref "DBMasterUserPassword"
+#          DB_WRITER_ENDPOINT_ADDRESS: !GetAtt DBCluster.Endpoint.Address #Auroraのライターエンドポイントを設定している
+#          DB_USER: !Ref "DBMasterUserName"
+#
+#      Code:
+#        S3Bucket: !Ref "S3BucketName"
+#        S3Key: index.zip
+#      FunctionName: "TestDataInsertLambda"
+#      Handler: index.lambda_handler
+#      Runtime: python3.8
+#      Role: !GetAtt IAMRoleForLambdaFunction.Arn #Lambda実行権限とAuroraの操作権限を付与したIAM
+#      Timeout: 10
+#      VpcConfig:
+#        SecurityGroupIds:
+#          - !Ref TestSecurityGroupForLambda
+#        SubnetIds:
+#          - !Ref TestPrivateSub1a
+

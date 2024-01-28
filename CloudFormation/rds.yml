@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This CloudFormation template to create RDS(Aurora PostgreSQL) db instances.
+
+Mappings:
+  dev:
+    DBSubnet1a: { ID: subnet-xxxxxxxxxxxxxxxxx }
+    DBSubnet1c: { ID: subnet-xxxxxxxxxxxxxxxxx }
+    RdsSecurityGroup: { ID: sg-xxxxxxxxxxxxxxxxx }
+    DBInstance:
+      Engine: aurora-postgresql
+      EngineVersion: 13.7
+      RDS1AvailabilityZone: ap-northeast-1a
+      RDS2AvailabilityZone: ap-northeast-1c
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: 13:00-13:30
+      ClusterPreferredMaintenanceWindow: tue:14:00-tue:14:30
+      InstancePreferredMaintenanceWindow: wed:14:00-wed:14:30
+      DatabaseName: test_db
+      AutoMinorVersionUpgrade: true
+      DBInstanceClass: db.t4g.large
+    DBParameterGroup:
+      DBEngineFamily: aurora-postgresql13
+
+Parameters:
+  Environment:
+    Description: Type of this environment.
+    Type: String
+    Default: dev
+    AllowedValues:
+    - dev
+
+  SystemName:
+    Description: Name of this system.
+    Type: String
+    Default: test-rds
+  Username:
+    Description: Name of DB mater username.
+    Type: String
+    Default: postgres
+  Password:
+    Description: Name of DB mater user password.
+    Type: String
+    NoEcho: true
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - 
+        Label:
+          default: Environment Configuration
+          Parameters:
+            - SystemName
+            - Environment
+      - 
+        Label:
+          default: RDS DB instace Configuration
+          Parameters:
+            - Username
+            - Password
+
+Resources:
+  # IAM Role for enhanced monitoring
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    Properties:
+      RoleName: !Sub ${SystemName}-${Environment}-rds-monitoring-role
+      Path: /
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "monitoring.rds.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+  RDSCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Delete
+    Properties:
+      MasterUsername: !Ref Username
+      MasterUserPassword: !Ref Password
+      Port: 5432
+      Engine: !FindInMap [ !Ref Environment, DBInstance, Engine ]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroup
+      VpcSecurityGroupIds:
+        - !FindInMap [ !Ref Environment, RdsSecurityGroup, ID ]
+      BackupRetentionPeriod: !FindInMap [ !Ref Environment, DBInstance, BackupRetentionPeriod ]
+      PreferredBackupWindow: !FindInMap [ !Ref Environment, DBInstance, PreferredBackupWindow ]
+      DatabaseName: !FindInMap [ !Ref Environment, DBInstance, DatabaseName ]
+      DBClusterIdentifier: !Sub ${SystemName}-${Environment}-aurora-posgre
+      DeletionProtection: false
+      EngineMode: provisioned
+      EngineVersion: !FindInMap [ !Ref Environment, DBInstance, EngineVersion ]
+      PreferredMaintenanceWindow: !FindInMap [ !Ref Environment, DBInstance, ClusterPreferredMaintenanceWindow ]
+      StorageEncrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Environment}-aurora-posgre-cluster
+
+  RDSDBInstance1:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref RDSDBParameterGroup
+      Engine: !FindInMap [ !Ref Environment, DBInstance, Engine ]
+      EngineVersion: !FindInMap [ !Ref Environment, DBInstance, EngineVersion ]
+      DBClusterIdentifier: !Ref RDSCluster
+      AvailabilityZone: !FindInMap [ !Ref Environment, DBInstance, RDS1AvailabilityZone ]
+      DBInstanceClass: !FindInMap [ !Ref Environment, DBInstance, DBInstanceClass ]
+      AutoMinorVersionUpgrade: !FindInMap [ !Ref Environment, DBInstance, AutoMinorVersionUpgrade ]
+      CopyTagsToSnapshot: true
+      DBInstanceIdentifier: !Sub ${SystemName}-${Environment}-aurora-posgre-1
+      EnablePerformanceInsights: true
+      PreferredMaintenanceWindow: !FindInMap [ !Ref Environment, DBInstance, InstancePreferredMaintenanceWindow ]
+      # DeletionProtection: true
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      PubliclyAccessible: false
+      PromotionTier: 1
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Environment}-aurora-posgre-1
+
+  RDSDBInstance2:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref RDSDBParameterGroup
+      Engine: !FindInMap [ !Ref Environment, DBInstance, Engine ]
+      EngineVersion: !FindInMap [ !Ref Environment, DBInstance, EngineVersion ]
+      DBClusterIdentifier: !Ref RDSCluster
+      AvailabilityZone: !FindInMap [ !Ref Environment, DBInstance, RDS2AvailabilityZone ]
+      DBInstanceClass: !FindInMap [ !Ref Environment, DBInstance, DBInstanceClass ]
+      AutoMinorVersionUpgrade: !FindInMap [ !Ref Environment, DBInstance, AutoMinorVersionUpgrade ]
+      CopyTagsToSnapshot: true
+      DBInstanceIdentifier: !Sub ${SystemName}-${Environment}-aurora-posgre-2
+      EnablePerformanceInsights: true
+      PreferredMaintenanceWindow: !FindInMap [ !Ref Environment, DBInstance, InstancePreferredMaintenanceWindow ]
+      # DeletionProtection: true
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      PubliclyAccessible: false
+      PromotionTier: 2
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Environment}-aurora-posgre-2
+
+  # DB subnet group
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    DeletionPolicy: Delete
+    Properties:
+      DBSubnetGroupName: !Sub ${SystemName}-${Environment}-db-subnet-group
+      DBSubnetGroupDescription: !Sub ${SystemName}-${Environment}-db-subnet-group
+      SubnetIds:
+        - !FindInMap [ !Ref Environment, DBSubnet1a, ID ]
+        - !FindInMap [ !Ref Environment, DBSubnet1c, ID ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Environment}-db-subnet-group
+
+  # DB Cluster Parameter Group
+  RDSDBClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    DeletionPolicy: Delete
+    Properties:
+      Description: !Sub ${SystemName}-${Environment}-db-cluster-param-group
+      Family: !FindInMap [ !Ref Environment, DBParameterGroup, DBEngineFamily ]
+      Parameters:
+        client_encoding: UTF8
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Environment}-db-cluster-param-group
+
+  # DB parameter group
+  RDSDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    DeletionPolicy: Delete
+    Properties:
+      Description: !Sub ${SystemName}-${Environment}-db-param-group
+      Family: !FindInMap [ !Ref Environment, DBParameterGroup, DBEngineFamily ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${SystemName}-${Environment}-db-param-group
