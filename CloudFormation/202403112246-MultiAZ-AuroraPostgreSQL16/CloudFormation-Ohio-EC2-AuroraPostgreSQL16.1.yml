@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: 2010-09-09
+#####################################################
+#
+# 202403112246
+# 既存のEC2クライアントを利用したいので、既存VPCを選んでAuroraだけデプロイするコード。
+#
+#####################################################
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Create a new Aurora PostgreSQL cluster in an existing VPC'
+
+Parameters:
+  ExistingVPCID:
+    Type: String
+    Description: The VPC ID where the Aurora cluster will be created.
+
+  SubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of Subnet IDs for the Aurora cluster.
+
+  SecurityGroupID:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for the Aurora cluster.
+
+  DBMasterUserName:
+    Type: String
+    Description: The master username for the Aurora cluster.
+    Default: master
+
+  DBMasterUserPassword:
+    Type: String
+    Description: The master user password for the Aurora cluster.
+    NoEcho: true
+    MinLength: 8
+
+Resources:
+  MyDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: 'Subnet group for Aurora PostgreSQL cluster'
+      SubnetIds: 
+        Ref: SubnetIDs
+
+  MyDBCluster:
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: '16.1'  # Specify the PostgreSQL version
+      Port: 5432
+      DBClusterIdentifier: 'my-new-aurora-cluster'
+      MasterUsername: 
+        Ref: DBMasterUserName
+      MasterUserPassword: 
+        Ref: DBMasterUserPassword
+      VpcSecurityGroupIds: 
+        - Ref: SecurityGroupID
+      DBSubnetGroupName: 
+        Ref: MyDBSubnetGroup
+
+  MyDBInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceClass: db.t4g.large  # Specify the instance class
+      Engine: aurora-postgresql
+      DBClusterIdentifier: 
+        Ref: MyDBCluster
+      PubliclyAccessible: false
+
+Outputs:
+  NewDBClusterEndpoint:
+    Description: Endpoint of the new Aurora PostgreSQL cluster
+    Value: 
+      Fn::GetAtt: [MyDBCluster, Endpoint.Address]

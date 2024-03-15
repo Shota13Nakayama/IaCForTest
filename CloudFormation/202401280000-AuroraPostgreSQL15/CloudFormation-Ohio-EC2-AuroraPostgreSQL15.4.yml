@@ -1,0 +1,259 @@
+AWSTemplateFormatVersion: 2010-09-09
+#####################################################
+#
+# 202403101050
+# DBとDBクライアントが作成される
+# AuroraPostgreSQL15.4 : t4g.large(AWS Graviton2/2vCPU/8GiBMemory/Network2780MBps)
+# EC2 : t2.micro(AWS Graviton2/1vCPU/1GiBMemory) パブリックIP：DHCP
+#
+#####################################################
+Parameters:
+  DBMasterUserName:
+    Description: Please enter the name of the master user on an RDS.
+    Type: String
+    Default: master
+
+  DBMasterUserPassword:
+    Description: Please enter the password of the master user on an RDS. That should be greater or equal to 8 characters.
+    Type: String
+    Default: testdbpass
+    NoEcho: true
+
+  VpcSubnet:
+    Description: AP VPC subnet
+    Type: String
+    Default: 10.0.0.0/16
+
+#  TestDataS3BucketArn:
+#    Description: Please enter the ARN of the S3 bucket where the files to be imported into the Aurora database are stored.
+#    Type: String
+#    Default: arn:aws:s3:::bucket-name
+#
+#  S3BucketName:
+#    Description: Please enter the S3 bucket name.
+#    Type: String
+
+  EC2InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+  EC2KeyName:
+    Description: Key name of the EC2 key pair
+    Type: AWS::EC2::KeyPair::KeyName
+
+#####################################################
+# Mappings
+#####################################################
+Mappings:
+  Constant:
+    RDS:
+      ClusterName: test-aurora-cluster
+      DatabaseName: auroradb
+      InstanceName: test-aurora-instance1
+      InstanceType: db.t4g.large
+
+#####################################################
+# Resource
+#####################################################
+
+#####################################################
+#  VPC section
+#####################################################
+
+Description: Create VPC
+Resources:
+  TestVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcSubnet
+      Tags:
+        - Key: Name
+          Value: TestVPC
+
+#####################################################
+#  Subnet section
+#####################################################
+
+  TestPrivateSub1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [0, !Cidr [!GetAtt TestVPC.CidrBlock, 2, 8]] #10.0.0.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref TestVPC
+      AvailabilityZone: us-east-2a
+      Tags:
+        - Key: Name
+          Value: TestPrivateSub1a
+
+  TestPrivateSub1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [1, !Cidr [!GetAtt TestVPC.CidrBlock, 2, 8]] #10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref TestVPC
+      AvailabilityZone:  us-east-2b
+      Tags:
+        - Key: Name
+          Value: TestPrivateSub1c
+
+#####################################################
+#  SecurityGroup section
+#####################################################
+
+  TestSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref "TestVPC"
+      GroupDescription: Allow RDS Connection From TCP 5432 Port
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !GetAtt "TestVPC.CidrBlock"
+      Tags:
+        - Key: Name
+          Value: TestSecurityGroup
+
+#  TestSecurityGroupForLambda:
+#    Type: AWS::EC2::SecurityGroup
+#    Properties:
+#      VpcId: !Ref "TestVPC"
+#      GroupDescription: Allow PostgreSQL (TCP5432)
+#      Tags:
+#        - Key: Name
+#          Value: TestSecurityGroupForLambda
+#
+#####################################################
+#   DBSubnetGroup section
+#####################################################
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS subnet group.
+      SubnetIds:
+        - !Ref "TestPrivateSub1a"
+        - !Ref "TestPrivateSub1c"
+
+#####################################################
+# Aurora section
+#####################################################
+  DBParameterGroup:
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties:
+      Description: "RDS DB parameter group the Aurora Cluster's instance(s)."
+      Family: "aurora-postgresql15"
+      Parameters:
+        shared_preload_libraries: auto_explain,pg_stat_statements,pg_hint_plan,pgaudit
+      Tags: 
+        - Key: Name
+          Value: TestClusterParamaterGroup
+
+  DBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Properties:
+      Description: "RDS DB cluster parameter group for Hub-Amber"
+      Family: "aurora-postgresql15"
+      Parameters:
+        timezone: "Asia/Tokyo"
+      Tags: 
+        - Key: Name
+          Value: TestClusterParamaterGroup
+
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: 15.4
+      Port: 5432
+      DatabaseName: !FindInMap [Constant, RDS, DatabaseName]
+      DBClusterIdentifier: !FindInMap [Constant, RDS, ClusterName]
+      MasterUsername: !Ref "DBMasterUserName"
+      MasterUserPassword: !Ref "DBMasterUserPassword"
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      DBClusterParameterGroupName: !Ref "DBClusterParameterGroup"
+      VpcSecurityGroupIds:
+        - !Ref "TestSecurityGroup"
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: 15.4
+      DBInstanceClass: !FindInMap [Constant, RDS, InstanceType]
+      DBSubnetGroupName: !Ref "DBSubnetGroup"
+      DBParameterGroupName: !Ref "DBParameterGroup"
+      DBClusterIdentifier: !Ref "DBCluster"
+      AvailabilityZone: us-east-2a
+
+#####################################################
+# EC2 section (DBクライアント)
+#####################################################
+
+  # Public Subnet
+  TestPublicSub:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [2, !Cidr [!GetAtt TestVPC.CidrBlock, 4, 8]] # Example: 10.0.2.0/24
+      VpcId: !Ref TestVPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: us-east-2c
+      Tags:
+        - Key: Name
+          Value: TestPublicSub
+
+  # Public Subnet Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestVPC
+
+  # Associate Public Subnet with Route Table
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref TestPublicSub
+      RouteTableId: !Ref PublicRouteTable
+
+  # Internet Gateway for Public Subnet
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  # Attach Internet Gateway to VPC
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TestVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Route to Internet Gateway
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Security Group for EC2 in Public Subnet
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref TestVPC
+      GroupDescription: Enable SSH access to EC2 instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # EC2 Instance in Public Subnet
+  MyEC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref EC2InstanceType
+      KeyName: !Ref EC2KeyName
+      ImageId: ami-0866a04d72a1f5479 # Replace with the correct AMI ID for your region and OS
+      SubnetId: !Ref TestPublicSub
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
