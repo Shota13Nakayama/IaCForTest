@@ -1,0 +1,47 @@
+---
+- name: Install and Run HammerDB on EC2 instance
+  hosts: localhost
+  become: yes
+  tasks:
+    - name: Install Git
+      yum:
+        name: git
+        state: present
+
+    - name: Install Docker
+      yum:
+        name: docker
+        state: present
+
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add the current user to the docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: restart_docker_daemon
+      become: yes
+      service:
+        name: docker
+        state: restarted
+
+    - name: Pull HammerDB Docker image
+      docker_image:
+        source: pull
+        name: tpcorg/hammerdb:postgres
+
+    - name: Run HammerDB Docker container
+      docker_container:
+        name: hammerdb
+        image: tpcorg/hammerdb:postgres
+        state: started
+        network_mode: host
+        interactive: yes
+        tty: yes
+        command: bash
