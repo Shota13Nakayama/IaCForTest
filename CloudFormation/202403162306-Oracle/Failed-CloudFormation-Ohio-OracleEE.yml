@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: 2010-09-09
+#####################################################
+#
+# 202403162308
+# Oracle
+# EC2 : t2.micro(AWS Graviton2/1vCPU/1GiBMemory) パブリックIP：DHCP
+#
+# sample : https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/quickref-rds.html
+#
+# Error: 	Resource handler returned message: "Access Denied to API Version: API20120917 (Service: Rds, Status Code: 400, Request ID: 70fec12c-9c9b-49cf-a9ac-38f1befe84ed)" (RequestToken: c8e3b9b5-be1d-43c8-a513-c2cc833e3b7f, HandlerErrorCode: InvalidRequest)
+#####################################################
+Parameters:
+  DBMasterUserName:
+    Description: Please enter the name of the master user on an RDS.
+    Type: String
+    Default: master
+
+  DBMasterUserPassword:
+    Description: Please enter the password of the master user on an RDS. That should be greater or equal to 8 characters.
+    Type: String
+    Default: testdbpass
+    NoEcho: true
+
+  VpcSubnet:
+    Description: AP VPC subnet
+    Type: String
+    Default: 10.0.0.0/16
+  EC2InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+  EC2KeyName:
+    Description: Key name of the EC2 key pair
+    Type: AWS::EC2::KeyPair::KeyName
+
+#####################################################
+# Mappings
+#####################################################
+Mappings:
+  Constant:
+    RDS:
+      DatabaseName: oracledb
+      InstanceName: test-oracle-instance1
+      InstanceType: db.t3.small
+
+#####################################################
+# Resource
+#####################################################
+
+#####################################################
+#  VPC section
+#####################################################
+
+Description: Create VPC
+Resources:
+  TestVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcSubnet
+      Tags:
+        - Key: Name
+          Value: TestVPC
+
+#####################################################
+#  Subnet section
+#####################################################
+
+  TestPrivateSub1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [0, !Cidr [!GetAtt TestVPC.CidrBlock, 2, 8]] #10.0.0.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref TestVPC
+      AvailabilityZone: us-east-2a
+      Tags:
+        - Key: Name
+          Value: TestPrivateSub1a
+
+  TestPrivateSub1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Select [1, !Cidr [!GetAtt TestVPC.CidrBlock, 2, 8]] #10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref TestVPC
+      AvailabilityZone:  us-east-2b
+      Tags:
+        - Key: Name
+          Value: TestPrivateSub1c
+
+#####################################################
+#  SecurityGroup section
+#####################################################
+
+  TestSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref "TestVPC"
+      GroupDescription: Allow RDS Connection From TCP 5432 Port
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1521
+          ToPort: 1521
+          CidrIp: !GetAtt "TestVPC.CidrBlock"
+      Tags:
+        - Key: Name
+          Value: TestSecurityGroup
+
+#####################################################
+#   DBSubnetGroup section
+#####################################################
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS subnet group.
+      SubnetIds:
+        - !Ref "TestPrivateSub1a"
+        - !Ref "TestPrivateSub1c"
+
+#####################################################
+# Oracle section
+#####################################################
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+#      Port: 1521
+# Error
+# DatabaseName: !FindInMap [Constant, RDS, DatabaseName]
+      DBSecurityGroups:
+        - Ref: TestSecurityGroup
+      # AllocatedStorage is amount of storage in gibibytes (GiB) to allocate for the DB instance.
+      AllocatedStorage: '5'
+      DBInstanceClass: !FindInMap [Constant, RDS, InstanceType]
+      Engine: oracle-ee
+      LicenseModel: bring-your-own-license
+      MasterUsername: !Ref DBMasterUserName
+#      MasterUserPassword: !Ref DBMasterUserPassword
+#      ManageMasterUserPassword: true
+#      MasterUserSecret:
+#        KmsKeyId: !Ref KMSKey
+#    DeletionPolicy: Snapshot

@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: 2010-09-09
+#####################################################
+#
+# 202403170005
+# Oracle19c-EE
+# エンジンバージョン
+# 19.0.0.0.ru-2024-01.rur-2024-01.r1
+# vCPU : 2
+#  RAM : 2 GB
+# sample : https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/quickref-rds.html
+#####################################################
+Resources:
+#  MyDbSecurityByCIDRIPGroup:
+#    Type: AWS::RDS::DBSecurityGroup
+#    Properties:
+#      GroupDescription: Ingress for CIDRIP
+#      DBSecurityGroupIngress:
+#        CIDRIP: "192.168.0.0/32"
+
+  MyDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+#      DBSecurityGroups:
+#      - Ref: MyDbSecurityByEC2SecurityGroup
+#      - Ref: MyDbSecurityByCIDRIPGroup
+      AllocatedStorage: '20'
+#      AllocatedStorage: '5'
+      DBInstanceClass: db.t3.small
+      Engine: oracle-ee
+      LicenseModel: bring-your-own-license
+      MasterUsername: master
+      ManageMasterUserPassword: true
+#      MasterUserSecret:
+#        KmsKeyId: !Ref KMSKey
+    DeletionPolicy: Snapshot
