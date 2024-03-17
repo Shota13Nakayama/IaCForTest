@@ -9,6 +9,36 @@ AWSTemplateFormatVersion: 2010-09-09
 #  RAM : 2 GB
 # sample : https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/quickref-rds.html
 #####################################################
+#
+#####################################################
+# Parameters: スタック作成時に設定する変数値
+#####################################################
+Parameters:
+  DBMasterUserName:
+    Description: Please enter the name of the master user on an RDS.
+    Type: String
+    Default: master
+
+  DBMasterUserPassword:
+    Description: Please enter the password of the master user on an RDS. That should be greater or equal to 8 characters.
+    Type: String
+    Default: testdbpass
+    NoEcho: true
+
+  VpcSubnet:
+    Description: AP VPC subnet
+    Type: String
+    Default: 10.0.0.0/16
+
+  EC2InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    
+  EC2KeyName:
+    Description: Key name of the EC2 key pair
+    Type: AWS::EC2::KeyPair::KeyName
+
 Resources:
 #  MyDbSecurityByCIDRIPGroup:
 #    Type: AWS::RDS::DBSecurityGroup
@@ -27,9 +57,11 @@ Resources:
       Engine: oracle-ee
       AllocatedStorage: '20'
       DBInstanceClass: db.t3.small
+      MasterUsername: !Ref "DBMasterUserName"
+      MasterUserPassword: !Ref "DBMasterUserPassword"
       LicenseModel: bring-your-own-license
       MasterUsername: master
-      ManageMasterUserPassword: true
+#      ManageMasterUserPassword: true
 #      MasterUserSecret:
 #        KmsKeyId: !Ref KMSKey
       EnablePerformanceInsights: true
