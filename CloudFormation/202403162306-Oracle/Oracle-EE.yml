@@ -4,7 +4,7 @@ AWSTemplateFormatVersion: 2010-09-09
 # 202403170005
 # Oracle19c-EE
 # db.t3.small
-# ÉGÉìÉWÉìÉoÅ[ÉWÉáÉì
+# ÔøΩGÔøΩÔøΩÔøΩWÔøΩÔøΩÔøΩoÔøΩ[ÔøΩWÔøΩÔøΩÔøΩÔøΩ
 # 19.0.0.0.ru-2024-01.rur-2024-01.r1
 # vCPU : 2
 #  RAM : 2 GB
@@ -12,9 +12,13 @@ AWSTemplateFormatVersion: 2010-09-09
 #####################################################
 #
 #####################################################
-# Parameters: ÉXÉ^ÉbÉNçÏê¨éûÇ…ê›íËÇ∑ÇÈïœêîíl
+# Parameters: ÔøΩXÔøΩ^ÔøΩbÔøΩNÔøΩÏê¨ÔøΩÔøΩÔøΩ…ê›íËÇ∑ÔøΩÔøΩœêÔøΩÔøΩl
 #####################################################
 Parameters:
+  EC2KeyName:
+    Description: Key name of the EC2 key pair
+    Type: AWS::EC2::KeyPair::KeyName
+
   DBName:
     Description: Please enter the name of the DatabaseInstance on an RDS.
     Type: String
@@ -31,19 +35,35 @@ Parameters:
     Default: testdbpass
     NoEcho: true
 
+  DBOptoinGroupName:
+    Description: Choose Oracle Parameter Group for S3 Integration
+    Type: String
+    Default: oracleee-og-s3-integration
+    
+  IAMRoleARNRDS:
+    Description: RDS IAM Role for S3 Integration
+    Type: String
+    Default: arn:aws:iam::019141493675:role/s3-oracle-integration-test-role
+
   VpcSubnet:
     Description: AP VPC subnet
     Type: String
     Default: 10.0.0.0/16
+    
+  TestSubnetGroupName:
+    Description: TestSubnetGroupName
+    Type: String
+    Default: test-subnet-group
 
   EC2InstanceType:
     Description: EC2 instance type
     Type: String
     Default: t2.micro
-    
-  EC2KeyName:
-    Description: Key name of the EC2 key pair
-    Type: AWS::EC2::KeyPair::KeyName
+
+  InstanceProfileName:
+    Description: Name of the IAM instance profile to attach to the EC2 instance.
+    Type: String
+    Default: S3-EC2-integration-test-role
 
 #####################################################
 # Mappings
@@ -102,7 +122,7 @@ Resources:
   TestSubnetGroup:
       Type: AWS::RDS::DBSubnetGroup
       Properties:
-        DBSubnetGroupName: "test-subnet-group"
+        DBSubnetGroupName: !Ref TestSubnetGroupName
         DBSubnetGroupDescription: Subnets available for the RDS DB Instance
         SubnetIds:
           - !Ref TestPrivateSub1a
@@ -152,9 +172,12 @@ Resources:
       #  KmsKeyId: !Ref KMSKey
       EnablePerformanceInsights: true
       DBParameterGroupName: !Ref OrclRDSParamGroup
-      OptionGroupName: !Ref OrclRDSOptionGroup
+      OptionGroupName: !Ref DBOptoinGroupName
+      AssociatedRoles:
+        - RoleArn: !Ref IAMRoleARNRDS
+          FeatureName: "S3_INTEGRATION"
       BackupRetentionPeriod: 0
-    #DeletionPolicy: Snapshot
+    DeletionPolicy: Delete
   OrclRDSParamGroup:
     Type: AWS::RDS::DBParameterGroup
     Properties:
@@ -162,15 +185,9 @@ Resources:
       Description: Oracle DB Parameter Group
       Parameters:
         compatible: 19.0.0.0
-  OrclRDSOptionGroup:
-    Type: AWS::RDS::OptionGroup
-    Properties: 
-      EngineName: oracle-ee
-      MajorEngineVersion: '19'
-      OptionGroupDescription: For Oracle Test
 
 #####################################################
-# EC2 section (DBÉNÉâÉCÉAÉìÉg)
+# EC2 section (DBÔøΩNÔøΩÔøΩÔøΩCÔøΩAÔøΩÔøΩÔøΩg)
 #####################################################
 
   # Public Subnet
@@ -240,3 +257,4 @@ Resources:
       SubnetId: !Ref TestPublicSub
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref InstanceProfileName
