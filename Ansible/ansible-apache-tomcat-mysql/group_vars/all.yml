@@ -1,8 +1,8 @@
 # basic_user
-basic_auth_user: ec2-user
+basic_auth_user: web-user
 
 # basic_auth_password
-basic_auth_password: testdbpass
+basic_auth_password: webpass
 
 # MySQL root password
 mysql_root_password: testdbpass
