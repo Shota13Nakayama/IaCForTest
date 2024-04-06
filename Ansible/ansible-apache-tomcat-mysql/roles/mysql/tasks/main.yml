@@ -1,0 +1,52 @@
+---
+- name: Download mysql community repo
+  ansible.builtin.get_url:
+    url: https://dev.mysql.com/get/mysql80-community-release-el9-4.noarch.rpm
+    dest: /tmp/mysql80-community-release-el9-4.noarch.rpm
+    http_agent: curl/7.76.1
+
+- name: Download GPG key
+  ansible.builtin.get_url:
+    url: https://repo.mysql.com/RPM-GPG-KEY-mysql-2022
+    dest: /tmp/RPM-GPG-KEY-mysql-2022
+
+- name: Install GPG key
+  ansible.builtin.rpm_key:
+    key: /tmp/RPM-GPG-KEY-mysql-2022
+    state: present
+
+- name: Install mysql community repo
+  ansible.builtin.dnf:
+    name: /tmp/mysql80-community-release-el9-4.noarch.rpm
+    state: present
+
+- name: Install packages
+  ansible.builtin.dnf:
+    name: mysql-community-server
+    state: present
+
+- name: Install PyMySQL
+  ansible.builtin.pip:
+    name: PyMySQL
+    state: present
+
+- name: Enable and start mysqld
+  ansible.builtin.service:
+    name: mysqld
+    state: started
+    enabled: true
+
+- name: Copy my.cnf
+  ansible.builtin.copy:
+    src: files/my.cnf
+    dest: /etc/my.cnf
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+  notify: restart mysqld
+
+- name: flush
+  ansible.builtin.meta: flush_handlers
+
+- import_tasks: initialize_mysql.yml

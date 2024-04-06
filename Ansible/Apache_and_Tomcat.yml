@@ -1,0 +1,59 @@
+---
+- name: Install and Run Apache and Tomcat on EC2 instance
+  hosts: localhost
+  become: yes
+  tasks:
+  - name: JDKのインストーラを取得
+    get_url:
+      url: http://download.oracle.com/otn-pub/java/jdk/8u131-b11/d54c1d3a095b4ff2b6607d096fa80163/jdk-8u131-linux-x64.rpm
+      dest: /tmp
+      headers: "Cookie:' gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie'"
+      validate_certs: no
+      checksum: "sha256: 3d1e8cc66f4fd77acef6093329d5dd95bd06e4a03926c52df794f311a0c093f8"
+
+  - name: JDKをインストール
+    yum:
+      name: /tmp/jdk-8u131-linux-x64.rpm
+      state: present
+    become: yes
+
+  - name: インストーラを削除
+    file:
+      state: absent
+      path: /tmp/jdk-8u131-linux-x64.rpm
+
+  - name: TOMCATユーザの作成
+    user:
+      name: tomcat
+    become: yes
+
+  - name: TOMCATのインストーラを取得
+    get_url:
+      url: http://ftp.riken.jp/net/apache/tomcat/tomcat-8/v8.5.15/bin/apache-tomcat-8.5.15.tar.gz
+      dest: ~/apache-tomcat-8.5.15.tar.gz
+      checksum: "sha1:67650d6deda0c0ba9e8c7db7fe4006c35d6dc7db"
+    become: yes
+    become_user: tomcat
+
+  - name: Tomcatをインストール
+    unarchive:
+      src: ~/apache-tomcat-8.5.15.tar.gz
+      dest:  ~/
+      remote_src: yes
+    become: yes
+    become_user: tomcat
+
+  - name: インストーラを削除
+    file:
+      state: absent
+      path: ~/apache-tomcat-8.5.15.tar.gz
+    become: yes
+    become_user: tomcat
+
+  - name: FirewallでTomcatが使用するポートを空ける
+    firewalld:
+      port: 8080/tcp
+      permanent: yes
+      immediate: yes
+      state: enabled
+    become: yes

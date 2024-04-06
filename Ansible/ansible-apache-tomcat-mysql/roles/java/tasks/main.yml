@@ -1,0 +1,10 @@
+---
+- name: Install packages
+  ansible.builtin.dnf:
+    name: java-11-amazon-corretto-devel
+    state: present
+
+- name: Change alternatives
+  community.general.alternatives:
+    name: java
+    path: /usr/lib/jvm/java-11-amazon-corretto.x86_64/bin/java

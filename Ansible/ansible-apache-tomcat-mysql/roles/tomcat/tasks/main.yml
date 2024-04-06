@@ -1,0 +1,33 @@
+---
+- name: Install packages
+  ansible.builtin.dnf:
+    name:
+      - tomcat9
+      - tomcat9-lib
+      - tomcat9-webapps
+    state: present
+
+- name: Copy server.xml
+  ansible.builtin.copy:
+    src: files/server.xml
+    dest: /etc/tomcat9/server.xml
+    owner: root
+    group: tomcat
+    mode: 0644
+    backup: yes
+  notify: restart tomcat
+
+- name: Set CATALINA_OPTS sysconfig
+  ansible.builtin.lineinfile:
+    path: /etc/sysconfig/tomcat9
+    regexp: '^CATALINA_OPTS='
+    line: 'CATALINA_OPTS="-server -Xmx1024m -Xms512m -Xss512k"'
+    state: present
+    backup: yes
+  notify: restart tomcat
+
+- name: Enable and start tomcat
+  ansible.builtin.service:
+    name: tomcat9
+    state: started
+    enabled: true

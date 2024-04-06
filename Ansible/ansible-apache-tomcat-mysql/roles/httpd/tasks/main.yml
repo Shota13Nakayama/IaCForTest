@@ -1,0 +1,46 @@
+---
+- name: Install packages
+  ansible.builtin.dnf:
+    name: 
+      - httpd
+      - mod_ssl
+    state: present
+
+- name: Install python-passlib
+  ansible.builtin.pip:
+    name: passlib
+
+- name: Create "file:/etc/httpd/conf/.htpasswd for basic auth"
+  community.general.htpasswd:
+    path: /etc/httpd/conf/.htpasswd
+    name: "{{ basic_auth_user }}"
+    password: "{{ basic_auth_password }}"
+    mode: 0640
+    owner: root
+    group: apache
+    state: present
+  notify: restart httpd
+
+- name: Add httpd-ajp.conf
+  ansible.builtin.copy:
+    src: files/httpd-ajp.conf
+    dest: /etc/httpd/conf.d/httpd-ajp.conf
+    owner: apache
+    group: apache
+    mode: 0644
+  notify: restart httpd
+
+- name: Add httpd-basic.conf
+  ansible.builtin.copy:
+    src: files/httpd-basic.conf
+    dest: /etc/httpd/conf.d/httpd-basic.conf
+    owner: apache
+    group: apache
+    mode: 0644
+  notify: restart httpd
+
+- name: Enable and start httpd
+  ansible.builtin.service:
+    name: httpd
+    state: started
+    enabled: true

@@ -1,0 +1,20 @@
+---
+- name: Install packages
+  ansible.builtin.dnf:
+    name:
+      - cronie-noanacron
+    state: present
+
+- name: Add crontab
+  ansible.builtin.copy:
+    src: files/crontab
+    dest: /var/spool/cron/root
+    owner: root
+    group: root
+    mode: 0600
+
+- name: Enable and start crond
+  ansible.builtin.service:
+    name: crond
+    state: started
+    enabled: true

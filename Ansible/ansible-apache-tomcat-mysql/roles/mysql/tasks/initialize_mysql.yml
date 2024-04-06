@@ -1,0 +1,43 @@
+# 初期化チェック - ログインできない場合のみ初期化処理を実行
+- name: Check Initialize
+  command: mysql --user root --password={{ mysql_root_password }} --execute="SELECT 1;"
+  register: mysql_login_result
+  ignore_errors: true
+  changed_when: false
+
+# MySQLの初期化処理
+- name: Execute mysql initialize
+  block:
+    - name: get root password
+      shell: "grep 'A temporary password is generated for root@localhost' /var/log/mysqld.log | awk -F ' ' '{print $(NF)}'"
+      register: root_password
+    # MySQL secure installation
+    - name: update expired root user password
+      command: mysql --user root --password={{ root_password.stdout }} --connect-expired-password --execute="ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
+    - name: Deletes anonymous MySQL server user
+      community.mysql.mysql_user:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        name: ""
+        host_all: yes
+        state: absent
+    - name: Get hostname
+      command: hostname
+      register: hostname
+      changed_when: false
+      failed_when: false
+    - name: Disallow root login remotely
+      community.mysql.mysql_user:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        name: root
+        host: "{{ hostname.stdout }}"
+        state: absent
+    - name: Removes the MySQL test database
+      community.mysql.mysql_db: 
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        name: test
+        state: absent
+  when: mysql_login_result.rc != 0
+  notify: restart mysqld
